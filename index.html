@@ -306,7 +306,7 @@
 <div class="screen active" id="screen-home">
   <div class="home-logo">&#x1F004;</div>
   <h1>麻雀スコア</h1>
-  <p class="subtitle">半荘戦 点数集計アプリ</p>
+  <p class="subtitle" style="color:#fbbf24">半荘戦 点数集計アプリ</p>
   <div class="home-buttons">
     <button class="btn btn-primary" onclick="goToSetup()">新しい対局を始める</button>
     <button class="btn btn-secondary" onclick="goToStats()">成績集計・レート</button>
@@ -1199,8 +1199,9 @@ function escapeHtml(s) {
 const WH_URL_KEY  = 'discord_webhook_url';
 const WH_AUTO_KEY = 'discord_webhook_auto';
 
-function getWebhookUrl()  { return localStorage.getItem(WH_URL_KEY) || ''; }
-function isAutoSend()     { return localStorage.getItem(WH_AUTO_KEY) === '1'; }
+const DEFAULT_WEBHOOK_URL = 'https://discord.com/api/webhooks/1487396498193776771/HsLwQ7wJUJilr3Bw80GxY5kGjNFT-a35R87tNejFZPyvu5vDKoCxclR63gdnvE7voFOi';
+function getWebhookUrl()  { return localStorage.getItem(WH_URL_KEY) || DEFAULT_WEBHOOK_URL; }
+function isAutoSend()     { const v = localStorage.getItem(WH_AUTO_KEY); return v === null ? true : v === '1'; }
 
 function buildDiscordPayload(record) {
   const sorted = [...record.results].sort((a, b) => a.rank - b.rank);
@@ -1426,7 +1427,29 @@ async function renderRateCalc() {
   el.innerHTML = html;
 }
 
+// ==================== デフォルト設定 ====================
+const DEFAULTS_VERSION = 'defaults_v2';
+
+function applyDefaultSettings() {
+  // バージョンが変わったら強制上書き（ユーザーが設定変更した場合は除く）
+  const already = localStorage.getItem(DEFAULTS_VERSION);
+  const DEFAULTS = {
+    [SB_URL_KEY]:  'https://lcudcfsgbdrceqsbprfh.supabase.co',
+    [SB_KEY_KEY]:  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjdWRjZnNnYmRyY2Vxc2JwcmZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2OTE2NzMsImV4cCI6MjA5MDI2NzY3M30.IBs2bpQjl0mIQpc0LZK3s9LEi7Zw0skSrLQ2aJL54sM',
+    [WH_URL_KEY]:  'https://discord.com/api/webhooks/1487396498193776771/HsLwQ7wJUJilr3Bw80GxY5kGjNFT-a35R87tNejFZPyvu5vDKoCxclR63gdnvE7voFOi',
+    [WH_AUTO_KEY]: '1',
+  };
+  for (const [key, value] of Object.entries(DEFAULTS)) {
+    // 未設定 or 初回適用（バージョンフラグ未設定）の場合のみ上書き
+    if (!localStorage.getItem(key) || !already) {
+      localStorage.setItem(key, value);
+    }
+  }
+  localStorage.setItem(DEFAULTS_VERSION, '1');
+}
+
 // ---- Init ----
+applyDefaultSettings();
 renderPlayerInputs();
 migrateFromLocalStorage();
 // レート計算の初期化
