@@ -342,7 +342,7 @@
     <button class="btn btn-secondary" onclick="goToHistory()">対局履歴を見る</button>
     <button class="btn btn-secondary" onclick="goToNyan()">にゃん管理</button>
     <a class="btn btn-secondary" href="https://game.mahjongsoul.com/index.html" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">雀魂でプレイする</a>
-    <button class="btn btn-secondary" onclick="showScreen('settings')" style="opacity:0.7;font-size:0.9rem">設定</button>
+    <button class="btn btn-secondary" onclick="promptSettings()" style="opacity:0.7;font-size:0.9rem">設定</button>
   </div>
 
   <div class="card rate-calc-card">
@@ -1363,6 +1363,16 @@ function showScreen(name) {
   window.scrollTo(0, 0);
   if (name === 'settings') loadSettingsUI();
   if (name === 'home') renderRateCalc();
+}
+
+function promptSettings() {
+  const pw = prompt('パスワードを入力してください');
+  if (pw === null) return;
+  if (pw === 'dadmin00') {
+    showScreen('settings');
+  } else {
+    alert('パスワードが違います');
+  }
 }
 
 function loadSettingsUI() {
