@@ -320,7 +320,7 @@
     <div class="rate-input-row">
       <span>1pt =</span>
       <input type="number" id="rate-multiplier" value="100" min="1" step="1" oninput="renderRateCalc()">
-      <span>円</span>
+      <span>にゃん</span>
     </div>
     <div class="rate-toggle">
       <button class="rate-toggle-btn active" id="rtbtn-latest" onclick="setRateMode('latest')">最新の対局</button>
@@ -467,6 +467,14 @@
 );
 alter table mahjong_history enable row level security;
 create policy "allow_all" on mahjong_history
+  for all using (true) with check (true);
+
+create table mahjong_settings (
+  key text primary key,
+  value text not null
+);
+alter table mahjong_settings enable row level security;
+create policy "allow_all" on mahjong_settings
   for all using (true) with check (true);</pre>
     <button class="btn btn-secondary" onclick="copySql()" style="font-size:0.85rem;padding:8px">SQL をコピー</button>
     <div class="send-status" id="sql-copy-status"></div>
@@ -634,6 +642,25 @@ async function migrateFromLocalStorage() {
   } catch (e) {
     console.error('Migration failed:', e);
   }
+}
+
+// ==================== 共有設定（mahjong_settings）====================
+async function sharedGetSetting(key) {
+  const sb = getSupabaseClient();
+  if (!sb) return null;
+  const { data, error } = await sb
+    .from('mahjong_settings')
+    .select('value')
+    .eq('key', key)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.value;
+}
+
+async function sharedSetSetting(key, value) {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  await sb.from('mahjong_settings').upsert({ key, value: String(value) }, { onConflict: 'key' });
 }
 
 // IndexedDB → Supabase 移行
@@ -1384,6 +1411,7 @@ function setRateMode(mode) {
 async function renderRateCalc() {
   const mult = parseFloat(document.getElementById('rate-multiplier').value) || 100;
   localStorage.setItem(RATE_MULT_KEY, mult);
+  sharedSetSetting(RATE_MULT_KEY, mult); // Supabase に共有保存（非同期・fire and forget）
   const el = document.getElementById('rate-calc-result');
   const history = await dbGetAll();
 
@@ -1420,7 +1448,7 @@ async function renderRateCalc() {
     html += `<tr>
       <td>${escapeHtml(p.name)}</td>
       <td class="${cls}" style="text-align:right">${sign(p.score)}${p.score.toFixed(1)} pt</td>
-      <td class="${cls}">${sign(p.score)}${yen(p.score)} 円</td>
+      <td class="${cls}">${sign(p.score)}${yen(p.score)} にゃん</td>
     </tr>`;
   });
   html += '</table>';
@@ -1452,10 +1480,15 @@ function applyDefaultSettings() {
 applyDefaultSettings();
 renderPlayerInputs();
 migrateFromLocalStorage();
-// レート計算の初期化
+// レート計算の初期化（Supabase 優先、なければ localStorage）
 (async () => {
-  const saved = localStorage.getItem(RATE_MULT_KEY);
-  if (saved) document.getElementById('rate-multiplier').value = saved;
+  const shared = await sharedGetSetting(RATE_MULT_KEY);
+  const local  = localStorage.getItem(RATE_MULT_KEY);
+  const value  = shared || local;
+  if (value) {
+    document.getElementById('rate-multiplier').value = value;
+    localStorage.setItem(RATE_MULT_KEY, value);
+  }
   await renderRateCalc();
 })();
 </script>
