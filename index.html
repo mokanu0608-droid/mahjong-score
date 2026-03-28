@@ -298,6 +298,35 @@
     }
     .send-ok { color: #34d399; }
     .send-err { color: #f87171; }
+
+    /* ---- にゃん管理 ---- */
+    .nyan-summary-table { width:100%; border-collapse:collapse; font-size:0.9rem; }
+    .nyan-summary-table th {
+      color:#6b7280; font-weight:400; font-size:0.75rem;
+      padding:6px 4px; border-bottom:1px solid #374151; text-align:right;
+    }
+    .nyan-summary-table th:first-child { text-align:left; }
+    .nyan-summary-table td {
+      padding:10px 4px; text-align:right; border-bottom:1px solid #111827;
+    }
+    .nyan-summary-table td:first-child { text-align:left; font-weight:600; }
+    .nyan-summary-table tr:last-child td { border-bottom:none; }
+    .nyan-history-item {
+      background:#111827; border-radius:8px; padding:12px;
+      margin-bottom:8px; font-size:0.82rem;
+    }
+    .nyan-history-meta { color:#6b7280; font-size:0.75rem; margin-bottom:8px; }
+    .nyan-history-row {
+      display:flex; justify-content:space-between; padding:3px 0;
+      border-bottom:1px solid #1f2937;
+    }
+    .nyan-history-row:last-child { border-bottom:none; }
+    .nyan-total-bar {
+      display:flex; justify-content:space-between; align-items:center;
+      background:#1f2937; border-radius:8px; padding:12px 16px;
+      margin-bottom:14px; font-size:0.95rem;
+    }
+    .nyan-total-bar span:last-child { font-weight:700; font-size:1.1rem; }
   </style>
 </head>
 <body>
@@ -311,6 +340,7 @@
     <button class="btn btn-primary" onclick="goToSetup()">新しい対局を始める</button>
     <button class="btn btn-secondary" onclick="goToStats()">成績集計・レート</button>
     <button class="btn btn-secondary" onclick="goToHistory()">対局履歴を見る</button>
+    <button class="btn btn-secondary" onclick="goToNyan()">にゃん管理</button>
     <a class="btn btn-secondary" href="https://game.mahjongsoul.com/index.html" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">雀魂でプレイする</a>
     <button class="btn btn-secondary" onclick="showScreen('settings')" style="opacity:0.7;font-size:0.9rem">設定</button>
   </div>
@@ -409,6 +439,39 @@
   <button class="back-btn" onclick="showScreen('home')">&#8592; ホームに戻る</button>
   <h2>対局履歴</h2>
   <div id="history-list"></div>
+</div>
+
+<!-- ==================== NYAN ==================== -->
+<div class="screen" id="screen-nyan">
+  <button class="back-btn" onclick="showScreen('home')">&#8592; ホームに戻る</button>
+  <h2>にゃん管理</h2>
+
+  <div class="date-filter-row">
+    <button class="date-filter-btn active" id="ndfbtn-all"       onclick="setNyanDateFilter('all')">全期間</button>
+    <button class="date-filter-btn"        id="ndfbtn-thisMonth" onclick="setNyanDateFilter('thisMonth')">今月</button>
+    <button class="date-filter-btn"        id="ndfbtn-lastMonth" onclick="setNyanDateFilter('lastMonth')">先月</button>
+    <button class="date-filter-btn"        id="ndfbtn-day"       onclick="setNyanDateFilter('day')">日付指定</button>
+    <button class="date-filter-btn"        id="ndfbtn-custom"    onclick="setNyanDateFilter('custom')">カスタム</button>
+  </div>
+  <div class="custom-range" id="nyan-day-range" style="display:none">
+    <input type="date" id="nyan-date-day" onchange="renderNyan()">
+  </div>
+  <div class="custom-range" id="nyan-custom-range" style="display:none">
+    <input type="date" id="nyan-date-from" onchange="renderNyan()">
+    <span style="color:#6b7280;font-size:0.82rem">〜</span>
+    <input type="date" id="nyan-date-to" onchange="renderNyan()">
+  </div>
+  <p class="period-label" id="nyan-period-label"></p>
+
+  <div class="card">
+    <div class="card-title">プレイヤー別累計にゃん</div>
+    <div id="nyan-summary"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">対局ごとのにゃん内訳</div>
+    <div id="nyan-history"></div>
+  </div>
 </div>
 
 <!-- ==================== STATS ==================== -->
@@ -1395,6 +1458,124 @@ async function testWebhook() {
     el.textContent = `失敗: ${e.message}`;
     el.className = 'send-status send-err';
   }
+}
+
+// ==================== にゃん管理 ====================
+let nyanDateFilter = 'all';
+
+function getNyanDateRange() {
+  const now = new Date();
+  if (nyanDateFilter === 'thisMonth') {
+    return { from: new Date(now.getFullYear(), now.getMonth(), 1),
+             to:   new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59) };
+  }
+  if (nyanDateFilter === 'lastMonth') {
+    return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+             to:   new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59) };
+  }
+  if (nyanDateFilter === 'day') {
+    const d = document.getElementById('nyan-date-day').value;
+    if (d) return { from: new Date(d), to: new Date(d + 'T23:59:59') };
+  }
+  if (nyanDateFilter === 'custom') {
+    const f = document.getElementById('nyan-date-from').value;
+    const t = document.getElementById('nyan-date-to').value;
+    if (f && t) return { from: new Date(f), to: new Date(t + 'T23:59:59') };
+  }
+  return null;
+}
+
+function setNyanDateFilter(key) {
+  nyanDateFilter = key;
+  ['all','thisMonth','lastMonth','day','custom'].forEach(k => {
+    document.getElementById('ndfbtn-' + k).classList.toggle('active', k === key);
+  });
+  document.getElementById('nyan-day-range').style.display    = key === 'day'    ? 'flex' : 'none';
+  document.getElementById('nyan-custom-range').style.display = key === 'custom' ? 'flex' : 'none';
+  if (key === 'day' && !document.getElementById('nyan-date-day').value) {
+    document.getElementById('nyan-date-day').value = new Date().toISOString().slice(0, 10);
+  }
+  renderNyan();
+}
+
+async function goToNyan() {
+  await renderNyan();
+  showScreen('nyan');
+}
+
+async function renderNyan() {
+  const mult = parseFloat(localStorage.getItem('rate_multiplier')) || 100;
+  const allHistory = await dbGetAll();
+  const range = getNyanDateRange();
+
+  const history = range
+    ? allHistory.filter(r => { const d = new Date(r.date); return d >= range.from && d <= range.to; })
+    : allHistory;
+
+  const fmt = d => `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
+  document.getElementById('nyan-period-label').textContent =
+    range ? `${fmt(range.from)} 〜 ${fmt(range.to)}` : '';
+
+  const sign  = n => n >= 0 ? '+' : '';
+  const nyan  = n => (n * mult).toLocaleString() + ' にゃん';
+  const scls  = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'zero';
+
+  // ---- 累計サマリー ----
+  const map = {};
+  history.forEach(rec => {
+    rec.results.forEach(p => {
+      if (!map[p.name]) map[p.name] = { name: p.name, total: 0, games: 0 };
+      map[p.name].total += p.total;
+      map[p.name].games++;
+    });
+  });
+  const players = Object.values(map).sort((a, b) => b.total - a.total);
+
+  if (players.length === 0) {
+    document.getElementById('nyan-summary').innerHTML = '<div class="empty-state">対局履歴がありません</div>';
+    document.getElementById('nyan-history').innerHTML = '';
+    return;
+  }
+
+  // 合計にゃん
+  const grandTotal = players.reduce((s, p) => s + p.total, 0);
+
+  let sumHtml = `<table class="nyan-summary-table">
+    <thead><tr>
+      <th>プレイヤー</th>
+      <th>対局数</th>
+      <th>累計pt</th>
+      <th>累計にゃん</th>
+    </tr></thead><tbody>`;
+  players.forEach((p, i) => {
+    const rb = i === 0 ? '<span class="rank-badge r1" style="width:18px;height:18px;font-size:0.65rem">1</span>' : '';
+    sumHtml += `<tr>
+      <td>${rb}${escapeHtml(p.name)}</td>
+      <td>${p.games}</td>
+      <td class="${scls(p.total)}">${sign(p.total)}${p.total.toFixed(1)}</td>
+      <td class="${scls(p.total)}"><strong>${sign(p.total)}${nyan(p.total)}</strong></td>
+    </tr>`;
+  });
+  sumHtml += '</tbody></table>';
+  document.getElementById('nyan-summary').innerHTML = sumHtml;
+
+  // ---- 対局ごとの内訳 ----
+  let histHtml = '';
+  history.forEach(rec => {
+    const d = new Date(rec.date);
+    const dateStr = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+    const sorted = [...rec.results].sort((a, b) => a.rank - b.rank);
+    const rows = sorted.map(p => `
+      <div class="nyan-history-row">
+        <span><span class="rank-badge r${p.rank}" style="width:16px;height:16px;font-size:0.6rem">${p.rank}</span> ${escapeHtml(p.name)}</span>
+        <span class="${scls(p.total)}">${sign(p.total)}${p.total.toFixed(1)}pt &nbsp; <strong>${sign(p.total)}${nyan(p.total)}</strong></span>
+      </div>`).join('');
+    histHtml += `<div class="nyan-history-item">
+      <div class="nyan-history-meta">${dateStr} &nbsp;·&nbsp; ${rec.playerCount}人 半荘戦</div>
+      ${rows}
+    </div>`;
+  });
+  document.getElementById('nyan-history').innerHTML = histHtml || '<div class="empty-state">対局履歴がありません</div>';
 }
 
 // ==================== 収支 × レート計算 ====================
