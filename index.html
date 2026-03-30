@@ -299,6 +299,43 @@
     .send-ok { color: #34d399; }
     .send-err { color: #f87171; }
 
+    /* ---- セッションサマリー ---- */
+    .session-game-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 0; border-bottom: 1px solid #111827; font-size: 0.85rem;
+    }
+    .session-game-row:last-child { border-bottom: none; }
+    .session-game-num { color: #6b7280; width: 28px; flex-shrink: 0; }
+    .session-player-cell { flex: 1; display: flex; align-items: center; gap: 4px; }
+    .session-total-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .session-total-table th {
+      color: #6b7280; font-weight: 400; font-size: 0.75rem;
+      padding: 6px 4px; border-bottom: 1px solid #374151; text-align: right;
+    }
+    .session-total-table th:first-child { text-align: left; }
+    .session-total-table td {
+      padding: 10px 4px; text-align: right; border-bottom: 1px solid #111827;
+    }
+    .session-total-table td:first-child { text-align: left; font-weight: 600; }
+    .session-total-table tr:last-child td { border-bottom: none; }
+
+    /* ---- 保存済みプレイヤー ---- */
+    .player-suggestions {
+      display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px;
+    }
+    .player-sug-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #374151; border-radius: 16px; padding: 4px 10px 4px 12px;
+      font-size: 0.8rem; color: #d1d5db; cursor: pointer;
+      border: 1px solid transparent; transition: all 0.15s; user-select: none;
+    }
+    .player-sug-chip:hover { border-color: #ef4444; color: #fff; }
+    .sug-remove {
+      color: #6b7280; font-size: 1rem; line-height: 1;
+      padding: 0 2px; cursor: pointer; flex-shrink: 0;
+    }
+    .sug-remove:hover { color: #f87171; }
+
     /* ---- にゃん管理 ---- */
     .nyan-summary-table { width:100%; border-collapse:collapse; font-size:0.9rem; }
     .nyan-summary-table th {
@@ -341,8 +378,7 @@
     <button class="btn btn-secondary" onclick="goToStats()">成績集計・レート</button>
     <button class="btn btn-secondary" onclick="goToHistory()">対局履歴を見る</button>
     <button class="btn btn-secondary" onclick="goToNyan()">にゃん管理</button>
-    <a class="btn btn-secondary" href="https://game.mahjongsoul.com/index.html" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">雀魂でプレイする</a>
-    <button class="btn btn-secondary" onclick="promptSettings()" style="opacity:0.7;font-size:0.9rem">設定</button>
+<button class="btn btn-secondary" onclick="promptSettings()" style="opacity:0.7;font-size:0.9rem">設定</button>
   </div>
 
   <div class="card rate-calc-card">
@@ -428,10 +464,36 @@
   <h2>精算結果</h2>
   <div class="card" id="results-info"></div>
   <div class="card" id="results-table"></div>
-  <button class="btn btn-primary" onclick="saveAndFinish()">保存して終了</button>
+  <button class="btn btn-primary" onclick="nextGame()">次の対局へ</button>
+  <button class="btn btn-secondary" onclick="endSession()">本日の対局を終了</button>
   <button class="btn btn-discord" id="btn-discord-send" style="display:none" onclick="manualDiscordSend()">Discord に送信</button>
   <div class="send-status" id="send-status"></div>
   <button class="btn btn-secondary" onclick="showScreen('score')">点数を修正する</button>
+</div>
+
+<!-- ==================== SESSION SUMMARY ==================== -->
+<div class="screen" id="screen-session">
+  <h2>セッション結果</h2>
+  <div class="card">
+    <div class="card-title">対局ごとの結果</div>
+    <div id="session-games-list"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">累計収支 / レート変化</div>
+    <div id="session-totals"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">にゃん換算</div>
+    <div class="rate-input-row" style="margin-bottom:10px">
+      <span>1pt =</span>
+      <input type="number" id="session-rate-multiplier" value="100" min="1" step="1" oninput="renderSessionNyan()">
+      <span>にゃん</span>
+    </div>
+    <div id="session-nyan"></div>
+  </div>
+  <button class="btn btn-primary" id="btn-session-save" onclick="saveSession()">保存して終了</button>
+  <button class="btn btn-secondary" onclick="continueSession()">対局を続ける</button>
+  <div class="send-status" id="session-save-status"></div>
 </div>
 
 <!-- ==================== HISTORY ==================== -->
@@ -739,12 +801,37 @@ async function migrateIDBToSupabase() {
   return records.length;
 }
 
+// ==================== 保存済みプレイヤー ====================
+const SAVED_PLAYERS_KEY = 'mahjong_saved_players';
+
+function getSavedPlayers() {
+  try { return JSON.parse(localStorage.getItem(SAVED_PLAYERS_KEY)) || []; }
+  catch { return []; }
+}
+function addSavedPlayer(name) {
+  if (!name) return;
+  const list = getSavedPlayers();
+  if (!list.includes(name)) {
+    list.push(name);
+    localStorage.setItem(SAVED_PLAYERS_KEY, JSON.stringify(list));
+  }
+}
+function removeSavedPlayer(name) {
+  const list = getSavedPlayers().filter(n => n !== name);
+  localStorage.setItem(SAVED_PLAYERS_KEY, JSON.stringify(list));
+  renderPlayerInputs();
+}
+function selectSavedPlayer(index, name) {
+  document.getElementById('pname-' + index).value = name;
+}
+
 // ==================== State ====================
 let state = {
   playerCount: 4,
   players: [],
   startPoints: 25000,
   returnPoints: 30000,
+  sessionGames: [],   // 現在のセッション内の各対局結果
   uma: [10, 5, -5, -10],
   scores: [],
   results: null,
@@ -757,6 +844,7 @@ let historyCache = [];
 
 // ==================== Home ====================
 function goToSetup() {
+  state.sessionGames = [];
   renderPlayerInputs();
   showScreen('setup');
 }
@@ -798,11 +886,17 @@ function setPlayerCount(n) {
 
 function renderPlayerInputs() {
   const defaults = ['東家', '南家', '西家', '北家'];
+  const saved = getSavedPlayers();
   let html = '';
   for (let i = 0; i < state.playerCount; i++) {
     const val = state.players[i] || '';
+    const chips = saved.map(name => {
+      const esc = escapeHtml(name);
+      return `<span class="player-sug-chip" data-name="${esc}" onclick="selectSavedPlayer(${i}, this.dataset.name)">${esc}<span class="sug-remove" onclick="event.stopPropagation();removeSavedPlayer(this.parentElement.dataset.name)">×</span></span>`;
+    }).join('');
     html += `<div class="player-field">
       <label>プレイヤー ${i + 1}</label>
+      ${saved.length ? `<div class="player-suggestions">${chips}</div>` : ''}
       <input type="text" id="pname-${i}" placeholder="${defaults[i]}" value="${escapeHtml(val)}">
     </div>`;
   }
@@ -835,6 +929,12 @@ function startGame() {
       0,
     ];
   }
+
+  // 入力された名前（デフォルト名以外）を保存
+  const defaultNames = ['東家', '南家', '西家', '北家'];
+  state.players.forEach(name => {
+    if (!defaultNames.includes(name)) addSavedPlayer(name);
+  });
 
   state.scores = new Array(state.playerCount).fill('');
   renderScoreInputs();
@@ -1001,7 +1101,8 @@ function buildResultTable(results) {
 }
 
 // ==================== Save ====================
-async function saveAndFinish() {
+async function _saveCurrentGame() {
+  if (state.lastSavedRecord) return state.lastSavedRecord; // 二重保存防止
   const record = {
     id: Date.now(),
     date: new Date().toISOString(),
@@ -1022,12 +1123,179 @@ async function saveAndFinish() {
   await dbAdd(record);
   state.lastSavedRecord = record;
 
-  // 自動送信
-  if (isAutoSend() && getWebhookUrl()) {
-    sendToDiscord(record).catch(() => {}); // 失敗しても履歴画面へ遷移
+  // 履歴を10件に制限
+  const all = await dbGetAll();
+  for (const old of all.slice(10)) {
+    await dbDelete(old.id).catch(() => {});
   }
 
+  // 自動送信
+  if (isAutoSend() && getWebhookUrl()) {
+    sendToDiscord(record).catch(() => {});
+  }
+
+  return record;
+}
+
+async function nextGame() {
+  const record = await _saveCurrentGame();
+  state.sessionGames.push(record);
+
   // 点数入力をリセットして次の対局へ
+  state.scores = new Array(state.playerCount).fill('');
+  renderScoreInputs();
+  showScreen('score');
+}
+
+async function endSession() {
+  const record = await _saveCurrentGame();
+  state.sessionGames.push(record);
+  renderSessionSummary();
+  showScreen('session');
+}
+
+// ==================== Session Summary ====================
+const SESSION_HISTORY_KEY = 'mahjong_session_history';
+
+function getSessions() {
+  try { return JSON.parse(localStorage.getItem(SESSION_HISTORY_KEY)) || []; }
+  catch { return []; }
+}
+
+function renderSessionSummary() {
+  const games = state.sessionGames;
+  if (games.length === 0) return;
+
+  // 対局ごとリスト
+  const sign = n => n > 0 ? '+' + n.toFixed(1) : n === 0 ? '±0.0' : n.toFixed(1);
+  const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'zero';
+
+  let gamesHtml = '';
+  games.forEach((game, gi) => {
+    const sorted = [...game.results].sort((a, b) => a.rank - b.rank);
+    gamesHtml += `<div class="session-game-row">
+      <span class="session-game-num">${gi + 1}局</span>
+      ${sorted.map(p => `<span class="session-player-cell">
+        <span class="rank-badge r${p.rank}" style="width:18px;height:18px;font-size:0.65rem">${p.rank}</span>
+        ${escapeHtml(p.name)}<span class="${cls(p.total)}" style="margin-left:4px">${sign(p.total)}</span>
+      </span>`).join('')}
+    </div>`;
+  });
+  document.getElementById('session-games-list').innerHTML = gamesHtml;
+
+  // 累計集計
+  const playerNames = state.players;
+  const totals = {}; // name → { total, rateChange, games, ranks:[...] }
+  playerNames.forEach(name => {
+    totals[name] = { total: 0, rateChange: 0, games: 0, ranks: [0,0,0,0] };
+  });
+  games.forEach(game => {
+    const rp = RATE_POINTS[game.playerCount] || RATE_POINTS[4];
+    game.results.forEach(p => {
+      if (!totals[p.name]) totals[p.name] = { total: 0, rateChange: 0, games: 0, ranks: [0,0,0,0] };
+      totals[p.name].total += p.total;
+      totals[p.name].rateChange += rp[p.rank - 1] || 0;
+      totals[p.name].games++;
+      totals[p.name].ranks[p.rank - 1]++;
+    });
+  });
+
+  const sorted = Object.entries(totals).sort((a, b) => b[1].total - a[1].total);
+
+  let totalsHtml = `<table class="session-total-table">
+    <thead><tr>
+      <th>名前</th><th>対局</th><th>累計収支</th><th>レート変化</th>
+    </tr></thead><tbody>`;
+  sorted.forEach(([name, s]) => {
+    totalsHtml += `<tr>
+      <td>${escapeHtml(name)}</td>
+      <td>${s.games}</td>
+      <td class="${cls(s.total)}"><strong>${sign(s.total)}</strong></td>
+      <td class="${s.rateChange > 0 ? 'rate-up' : s.rateChange < 0 ? 'rate-down' : 'rate-neutral'}">${s.rateChange > 0 ? '+' : ''}${s.rateChange}</td>
+    </tr>`;
+  });
+  totalsHtml += '</tbody></table>';
+  document.getElementById('session-totals').innerHTML = totalsHtml;
+
+  // にゃん計算の初期値をホーム画面と同期
+  const mult = parseFloat(document.getElementById('rate-multiplier').value) || 100;
+  document.getElementById('session-rate-multiplier').value = mult;
+  renderSessionNyan();
+
+  document.getElementById('btn-session-save').disabled = false;
+  document.getElementById('session-save-status').textContent = '';
+}
+
+function renderSessionNyan() {
+  const mult = parseFloat(document.getElementById('session-rate-multiplier').value) || 100;
+  const games = state.sessionGames;
+  if (games.length === 0) return;
+
+  const sign = n => n > 0 ? '+' + n.toFixed(1) : n === 0 ? '±0.0' : n.toFixed(1);
+  const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'zero';
+
+  const totals = {};
+  state.players.forEach(name => { totals[name] = 0; });
+  games.forEach(game => {
+    game.results.forEach(p => {
+      if (totals[p.name] === undefined) totals[p.name] = 0;
+      totals[p.name] += p.total;
+    });
+  });
+
+  const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  let html = `<table class="rate-table">`;
+  sorted.forEach(([name, total]) => {
+    const nyan = total * mult;
+    html += `<tr><td>${escapeHtml(name)}</td><td class="${cls(nyan)}">${sign(nyan / mult * mult)}pt → <strong>${nyan > 0 ? '+' : ''}${nyan.toFixed(0)} にゃん</strong></td></tr>`;
+  });
+  html += '</table>';
+  document.getElementById('session-nyan').innerHTML = html;
+}
+
+function saveSession() {
+  const games = state.sessionGames;
+  if (games.length === 0) return;
+
+  const mult = parseFloat(document.getElementById('session-rate-multiplier').value) || 100;
+
+  // 累計集計
+  const totals = {};
+  state.players.forEach(name => { totals[name] = { total: 0, rateChange: 0, games: 0 }; });
+  games.forEach(game => {
+    const rp = RATE_POINTS[game.playerCount] || RATE_POINTS[4];
+    game.results.forEach(p => {
+      if (!totals[p.name]) totals[p.name] = { total: 0, rateChange: 0, games: 0 };
+      totals[p.name].total += p.total;
+      totals[p.name].rateChange += rp[p.rank - 1] || 0;
+      totals[p.name].games++;
+    });
+  });
+
+  const session = {
+    id: Date.now(),
+    date: new Date().toISOString(),
+    gameCount: games.length,
+    rateMultiplier: mult,
+    players: Object.entries(totals).map(([name, s]) => ({
+      name,
+      games: s.games,
+      totalScore: s.total,
+      rateChange: s.rateChange,
+      nyan: s.total * mult,
+    })),
+  };
+
+  const list = getSessions();
+  list.unshift(session);
+  localStorage.setItem(SESSION_HISTORY_KEY, JSON.stringify(list.slice(0, 50)));
+
+  document.getElementById('btn-session-save').disabled = true;
+  document.getElementById('session-save-status').textContent = '保存しました';
+  document.getElementById('session-save-status').className = 'send-status send-ok';
+}
+
+function continueSession() {
   state.scores = new Array(state.playerCount).fill('');
   renderScoreInputs();
   showScreen('score');
