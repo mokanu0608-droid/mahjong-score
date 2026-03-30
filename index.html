@@ -299,6 +299,16 @@
     .send-ok { color: #34d399; }
     .send-err { color: #f87171; }
 
+    /* ---- 履歴日付グループ ---- */
+    .history-day-header {
+      font-size: 0.82rem; font-weight: 600; color: #9ca3af;
+      padding: 8px 4px 6px; margin-top: 8px;
+      border-bottom: 1px solid #374151; margin-bottom: 6px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .history-day-header:first-child { margin-top: 0; }
+    .history-day-count { font-weight: 400; font-size: 0.75rem; color: #6b7280; }
+
     /* ---- セッションサマリー ---- */
     .session-game-row {
       display: flex; align-items: center; gap: 8px;
@@ -1311,26 +1321,48 @@ async function renderHistory() {
     return;
   }
 
-  container.innerHTML = historyCache.map(rec => {
+  // 日付キー (YYYY-MM-DD) でグループ化
+  const groups = {};
+  historyCache.forEach(rec => {
     const d = new Date(rec.date);
-    const dateStr = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
-    const sorted = [...rec.results].sort((a, b) => a.rank - b.rank);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(rec);
+  });
 
-    const chips = sorted.map(p => {
-      const s = p.total > 0 ? 'pos' : p.total < 0 ? 'neg' : 'zero';
-      const sign = p.total > 0 ? '+' : '';
-      return `<span class="player-chip">
-        <span class="rank-badge r${p.rank}" style="width:18px;height:18px;font-size:0.65rem">${p.rank}</span>
-        ${escapeHtml(p.name)}
-        <span class="${s}">${sign}${p.total.toFixed(1)}</span>
-      </span>`;
-    }).join('');
+  const dayLabel = key => {
+    const [y, m, d] = key.split('-');
+    return `${y}年${parseInt(m)}月${parseInt(d)}日`;
+  };
 
-    return `<div class="history-item" onclick="showDetail(${rec.id})">
-      <div class="history-meta">${dateStr} &nbsp;·&nbsp; ${rec.playerCount}人 半荘戦</div>
-      <div class="player-chips">${chips}</div>
+  let html = '';
+  Object.keys(groups).sort((a, b) => b.localeCompare(a)).forEach(key => {
+    const recs = groups[key];
+    html += `<div class="history-day-header">
+      <span>${dayLabel(key)}</span>
+      <span class="history-day-count">${recs.length}戦</span>
     </div>`;
-  }).join('');
+    recs.forEach((rec, gi) => {
+      const d = new Date(rec.date);
+      const timeStr = `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+      const sorted = [...rec.results].sort((a, b) => a.rank - b.rank);
+      const chips = sorted.map(p => {
+        const s = p.total > 0 ? 'pos' : p.total < 0 ? 'neg' : 'zero';
+        const sign = p.total > 0 ? '+' : '';
+        return `<span class="player-chip">
+          <span class="rank-badge r${p.rank}" style="width:18px;height:18px;font-size:0.65rem">${p.rank}</span>
+          ${escapeHtml(p.name)}
+          <span class="${s}">${sign}${p.total.toFixed(1)}</span>
+        </span>`;
+      }).join('');
+      html += `<div class="history-item" onclick="showDetail(${rec.id})">
+        <div class="history-meta">${gi + 1}局目 ${timeStr} &nbsp;·&nbsp; ${rec.playerCount}人 半荘戦</div>
+        <div class="player-chips">${chips}</div>
+      </div>`;
+    });
+  });
+
+  container.innerHTML = html;
 }
 
 function showDetail(id) {
