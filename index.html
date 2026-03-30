@@ -329,22 +329,37 @@
     .session-total-table td:first-child { text-align: left; font-weight: 600; }
     .session-total-table tr:last-child td { border-bottom: none; }
 
-    /* ---- 保存済みプレイヤー ---- */
+    /* ---- 保存済みプレイヤー／ユーザー選択 ---- */
     .player-suggestions {
       display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px;
     }
     .player-sug-chip {
-      display: inline-flex; align-items: center; gap: 4px;
-      background: #374151; border-radius: 16px; padding: 4px 10px 4px 12px;
-      font-size: 0.8rem; color: #d1d5db; cursor: pointer;
+      display: inline-flex; align-items: center;
+      background: #374151; border-radius: 16px; padding: 5px 14px;
+      font-size: 0.82rem; color: #d1d5db; cursor: pointer;
       border: 1px solid transparent; transition: all 0.15s; user-select: none;
     }
     .player-sug-chip:hover { border-color: #ef4444; color: #fff; }
-    .sug-remove {
-      color: #6b7280; font-size: 1rem; line-height: 1;
-      padding: 0 2px; cursor: pointer; flex-shrink: 0;
+    .player-sug-chip.selected { border-color: #ef4444; background: #4b1d1d; color: #fca5a5; }
+    .setup-user-link {
+      font-size: 0.75rem; color: #4b5563; cursor: pointer;
+      text-align: right; margin-bottom: 14px; display: block;
     }
-    .sug-remove:hover { color: #f87171; }
+    .setup-user-link:hover { color: #9ca3af; }
+
+    /* ---- ユーザー管理画面 ---- */
+    .user-list-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 0; border-bottom: 1px solid #111827;
+    }
+    .user-list-item:last-child { border-bottom: none; }
+    .user-list-name { font-weight: 600; font-size: 0.95rem; }
+    .user-delete-btn {
+      background: none; border: 1px solid #374151; border-radius: 6px;
+      color: #6b7280; font-size: 0.78rem; padding: 4px 10px; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .user-delete-btn:hover { border-color: #f87171; color: #f87171; }
 
     /* ---- にゃん管理 ---- */
     .nyan-summary-table { width:100%; border-collapse:collapse; font-size:0.9rem; }
@@ -388,6 +403,7 @@
     <button class="btn btn-secondary" onclick="goToStats()">成績集計・レート</button>
     <button class="btn btn-secondary" onclick="goToHistory()">対局履歴を見る</button>
     <button class="btn btn-secondary" onclick="goToNyan()">にゃん管理</button>
+    <button class="btn btn-secondary" onclick="goToUsers()">ユーザー管理</button>
 <button class="btn btn-secondary" onclick="promptSettings()" style="opacity:0.7;font-size:0.9rem">設定</button>
   </div>
 
@@ -479,6 +495,25 @@
   <button class="btn btn-discord" id="btn-discord-send" style="display:none" onclick="manualDiscordSend()">Discord に送信</button>
   <div class="send-status" id="send-status"></div>
   <button class="btn btn-secondary" onclick="showScreen('score')">点数を修正する</button>
+</div>
+
+<!-- ==================== USERS ==================== -->
+<div class="screen" id="screen-users">
+  <button class="back-btn" onclick="showScreen('home')">&#8592; ホームに戻る</button>
+  <h2>ユーザー管理</h2>
+  <div class="card">
+    <div class="card-title">新規追加</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="text" id="new-user-name" placeholder="名前を入力" style="flex:1"
+        onkeydown="if(event.key==='Enter')addUser()">
+      <button class="btn btn-primary" onclick="addUser()" style="width:auto;padding:10px 18px;margin:0;flex-shrink:0">追加</button>
+    </div>
+    <div id="add-user-status" class="send-status" style="margin-top:6px"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">登録済みユーザー</div>
+    <div id="users-list"><div class="empty-state" style="padding:30px 0">ユーザーが登録されていません</div></div>
+  </div>
 </div>
 
 <!-- ==================== SESSION SUMMARY ==================== -->
@@ -811,28 +846,99 @@ async function migrateIDBToSupabase() {
   return records.length;
 }
 
-// ==================== 保存済みプレイヤー ====================
-const SAVED_PLAYERS_KEY = 'mahjong_saved_players';
+// ==================== ユーザー管理 ====================
+const USERS_KEY = 'mahjong_users';
+const SAVED_PLAYERS_KEY = 'mahjong_saved_players'; // 旧キー（移行用）
 
-function getSavedPlayers() {
-  try { return JSON.parse(localStorage.getItem(SAVED_PLAYERS_KEY)) || []; }
-  catch { return []; }
+function getUsers() {
+  const raw = localStorage.getItem(USERS_KEY);
+  if (raw) {
+    try { return JSON.parse(raw); } catch { return []; }
+  }
+  // 旧形式から移行
+  const old = localStorage.getItem(SAVED_PLAYERS_KEY);
+  if (old) {
+    try {
+      const names = JSON.parse(old);
+      const users = names.map((name, i) => ({ id: Date.now() + i, name }));
+      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      localStorage.removeItem(SAVED_PLAYERS_KEY);
+      return users;
+    } catch { return []; }
+  }
+  return [];
 }
+
+function saveUsers(users) {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+function addUser() {
+  const input = document.getElementById('new-user-name');
+  const name = input.value.trim();
+  const status = document.getElementById('add-user-status');
+  if (!name) {
+    status.textContent = '名前を入力してください';
+    status.className = 'send-status send-err';
+    return;
+  }
+  const users = getUsers();
+  if (users.some(u => u.name === name)) {
+    status.textContent = 'すでに登録されています';
+    status.className = 'send-status send-err';
+    return;
+  }
+  users.push({ id: Date.now(), name });
+  saveUsers(users);
+  input.value = '';
+  status.textContent = `「${name}」を追加しました`;
+  status.className = 'send-status send-ok';
+  renderUsersList();
+}
+
+function deleteUser(id) {
+  const users = getUsers().filter(u => u.id !== id);
+  saveUsers(users);
+  renderUsersList();
+}
+
+function renderUsersList() {
+  const users = getUsers();
+  const container = document.getElementById('users-list');
+  if (users.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="padding:30px 0">ユーザーが登録されていません</div>';
+    return;
+  }
+  container.innerHTML = users.map(u => `
+    <div class="user-list-item">
+      <span class="user-list-name">${escapeHtml(u.name)}</span>
+      <button class="user-delete-btn" onclick="deleteUser(${u.id})">削除</button>
+    </div>
+  `).join('');
+}
+
+function goToUsers() {
+  renderUsersList();
+  showScreen('users');
+}
+
+// 対局開始時に新しい名前を自動登録（既存との互換）
 function addSavedPlayer(name) {
   if (!name) return;
-  const list = getSavedPlayers();
-  if (!list.includes(name)) {
-    list.push(name);
-    localStorage.setItem(SAVED_PLAYERS_KEY, JSON.stringify(list));
+  const users = getUsers();
+  if (!users.some(u => u.name === name)) {
+    users.push({ id: Date.now(), name });
+    saveUsers(users);
   }
 }
-function removeSavedPlayer(name) {
-  const list = getSavedPlayers().filter(n => n !== name);
-  localStorage.setItem(SAVED_PLAYERS_KEY, JSON.stringify(list));
-  renderPlayerInputs();
-}
+
 function selectSavedPlayer(index, name) {
   document.getElementById('pname-' + index).value = name;
+  // チップのselecte状態を更新
+  const field = document.getElementById('pname-' + index).closest('.player-field');
+  field.querySelectorAll('.player-sug-chip').forEach(c => {
+    c.classList.toggle('selected', c.dataset.name === name);
+  });
 }
 
 // ==================== State ====================
@@ -896,21 +1002,47 @@ function setPlayerCount(n) {
 
 function renderPlayerInputs() {
   const defaults = ['東家', '南家', '西家', '北家'];
-  const saved = getSavedPlayers();
+  const users = getUsers();
+  const chips = users.map(u => {
+    const esc = escapeHtml(u.name);
+    return `<span class="player-sug-chip" data-name="${esc}" onclick="selectSavedPlayer(_activePlayerIndex, this.dataset.name)">${esc}</span>`;
+  }).join('');
+
   let html = '';
+  if (users.length > 0) {
+    html += `<div style="margin-bottom:14px">
+      <label style="margin-bottom:6px">登録ユーザーから選択</label>
+      <div class="player-suggestions" id="user-chips">${chips}</div>
+    </div>`;
+  }
+  html += `<span class="setup-user-link" onclick="goToUsers()">＋ ユーザーを管理する</span>`;
+
   for (let i = 0; i < state.playerCount; i++) {
     const val = state.players[i] || '';
-    const chips = saved.map(name => {
-      const esc = escapeHtml(name);
-      return `<span class="player-sug-chip" data-name="${esc}" onclick="selectSavedPlayer(${i}, this.dataset.name)">${esc}<span class="sug-remove" onclick="event.stopPropagation();removeSavedPlayer(this.parentElement.dataset.name)">×</span></span>`;
-    }).join('');
     html += `<div class="player-field">
       <label>プレイヤー ${i + 1}</label>
-      ${saved.length ? `<div class="player-suggestions">${chips}</div>` : ''}
-      <input type="text" id="pname-${i}" placeholder="${defaults[i]}" value="${escapeHtml(val)}">
+      <input type="text" id="pname-${i}" placeholder="${defaults[i]}" value="${escapeHtml(val)}"
+        onfocus="_activePlayerIndex=${i};updateChipSelection(${i})">
     </div>`;
   }
   document.getElementById('player-inputs').innerHTML = html;
+  _activePlayerIndex = 0;
+}
+
+let _activePlayerIndex = 0;
+
+function updateChipSelection(index) {
+  const val = document.getElementById('pname-' + index)?.value || '';
+  document.querySelectorAll('#user-chips .player-sug-chip').forEach(c => {
+    c.classList.toggle('selected', c.dataset.name === val);
+  });
+}
+
+function selectSavedPlayer(index, name) {
+  const input = document.getElementById('pname-' + index);
+  if (!input) return;
+  input.value = name;
+  updateChipSelection(index);
 }
 
 function startGame() {
